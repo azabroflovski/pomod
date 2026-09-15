@@ -24,6 +24,15 @@ No make? Fine
 cc -o pomod pomod.c
 ```
 
+Tests are a shell script that runs a real daemon and pokes it. `make test` runs them
+against a normal build and against one with ASan and UBSan
+
+```sh
+make test
+SLOW=1 ./test.sh   # also waits out a real 1-minute pomodoro
+make debug         # just the sanitized build, ./pomod-debug
+```
+
 ## Usage
 Start the daemon somewhere: spare terminal tab, tmux pane, `&`, whatever
 
