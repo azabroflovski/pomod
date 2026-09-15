@@ -1,5 +1,8 @@
 # pomod
 
+![tomatoes](assets/tomatoes.jpg)
+<sub>Photo by snowday83 on [Pixabay](https://pixabay.com)</sub>
+
 A minimalistic, no-bullshit Pomodoro timer daemon. In C.
 
 ## Motivation
@@ -34,6 +37,8 @@ Then
 ./pomod start      # 25-minute pomodoro
 ./pomod start 50   # or 50, if you're in the zone
 ./pomod status     # time left
+./pomod pause      # someone's at the door
+./pomod resume
 ./pomod stop       # give up
 ```
 

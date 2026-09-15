@@ -94,7 +94,18 @@ static void run_hook(const char *cmd) {
     }
 }
 
-static void handle_client(int srv, time_t *end) {
+struct timer {
+    time_t end;  /* when the running pomodoro ends, 0 if it isn't running */
+    time_t left; /* seconds left on a paused one, 0 if it isn't paused */
+};
+
+static void say_left(int fd, const char *prefix, time_t left) {
+    dprintf(fd, "%s%02d:%02d left\n", prefix, (int)(left / 60), (int)(left % 60));
+}
+
+/* t is the same "now" the main loop just used to check if the pomodoro is
+ * over, so a running timer always has at least a second left in here */
+static void handle_client(int srv, struct timer *timer, time_t t) {
     int c = accept(srv, NULL, NULL);
     if (c < 0) return;
 
@@ -108,7 +119,7 @@ static void handle_client(int srv, time_t *end) {
     char *arg = line + strcspn(line, " ");
     if (*arg) *arg++ = '\0';
 
-    time_t left = *end ? *end - now() : 0;
+    time_t left = timer->end ? timer->end - t : timer->left;
 
     if (line[0] == '\0') {
         /* empty connect, another `pomod daemon` checking if we're alive */
@@ -117,24 +128,50 @@ static void handle_client(int srv, time_t *end) {
         long min = *arg ? strtol(arg, &e, 10) : DEFAULT_MINUTES;
         if (*e || min < 1 || min > MAX_MINUTES) {
             dprintf(c, "error: minutes should be 1..%d, got '%s'\n", MAX_MINUTES, arg);
-        } else if (*end) {
-            dprintf(c, "already running, %02d:%02d left\n", (int)(left / 60), (int)(left % 60));
+        } else if (timer->end) {
+            say_left(c, "already running, ", left);
+        } else if (timer->left) {
+            say_left(c, "paused, ", left);
         } else {
-            *end = now() + min * 60;
+            timer->end = t + min * 60;
             dprintf(c, "started, %ld min\n", min);
             printf("pomod: started, %ld min\n", min);
         }
+    } else if (strcmp(line, "pause") == 0) {
+        if (timer->end) {
+            timer->left = left;
+            timer->end = 0;
+            say_left(c, "paused, ", left);
+            printf("pomod: paused\n");
+        } else if (timer->left) {
+            say_left(c, "already paused, ", left);
+        } else {
+            dprintf(c, "not running\n");
+        }
+    } else if (strcmp(line, "resume") == 0) {
+        if (timer->left) {
+            timer->end = t + timer->left;
+            timer->left = 0;
+            say_left(c, "resumed, ", left);
+            printf("pomod: resumed\n");
+        } else if (timer->end) {
+            say_left(c, "already running, ", left);
+        } else {
+            dprintf(c, "not running\n");
+        }
     } else if (strcmp(line, "stop") == 0) {
-        if (*end) {
-            *end = 0;
+        if (timer->end || timer->left) {
+            *timer = (struct timer){ 0 };
             dprintf(c, "stopped\n");
             printf("pomod: stopped\n");
         } else {
             dprintf(c, "not running\n");
         }
     } else if (strcmp(line, "status") == 0) {
-        if (*end)
-            dprintf(c, "%02d:%02d left\n", (int)(left / 60), (int)(left % 60));
+        if (timer->end)
+            say_left(c, "", left);
+        else if (timer->left)
+            say_left(c, "paused, ", left);
         else
             dprintf(c, "not running\n");
     } else {
@@ -179,26 +216,27 @@ static int serve(const char *hook) {
     setvbuf(stdout, NULL, _IOLBF, 0);
     printf("pomod: listening on %s\n", addr.sun_path);
 
-    time_t end = 0; /* when the current pomodoro ends, 0 if there is none */
+    struct timer timer = { 0 };
 
     while (!quit) {
-        /* idle: sleep until someone connects. running: also wake up every
-         * second to look at the clock. an exact timeout would fire late after
-         * suspend, linux doesn't count sleep time in poll timeouts */
+        /* idle or paused: sleep until someone connects. running: also wake up
+         * every second to look at the clock. an exact timeout would fire late
+         * after suspend, linux doesn't count sleep time in poll timeouts */
         struct pollfd p = { .fd = srv, .events = POLLIN };
-        int r = poll(&p, 1, end ? 1000 : -1);
+        int r = poll(&p, 1, timer.end ? 1000 : -1);
         if (r < 0 && errno != EINTR) {
             perror("poll");
             break;
         }
 
-        if (end && now() >= end) {
-            end = 0;
+        time_t t = now();
+        if (timer.end && t >= timer.end) {
+            timer.end = 0;
             printf("pomod: done\a\n");
             if (hook) run_hook(hook);
         }
 
-        if (r > 0) handle_client(srv, &end);
+        if (r > 0) handle_client(srv, &timer, t);
     }
 
     close(srv);
@@ -241,6 +279,8 @@ int main(int argc, char *argv[]) {
         fprintf(stderr,
             "usage: pomod daemon [cmd]   run the timer, cmd goes to sh when a pomodoro ends\n"
             "       pomod start [min]    start a pomodoro, %d min by default\n"
+            "       pomod pause\n"
+            "       pomod resume\n"
             "       pomod stop\n"
             "       pomod status\n", DEFAULT_MINUTES);
         return 1;
