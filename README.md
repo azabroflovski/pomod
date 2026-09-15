@@ -1,46 +1,57 @@
-# pomod-cli
+# pomod
 
-A minimalistic, no-bullshit Pomodoro timer daemon.
+A minimalistic, no-bullshit Pomodoro timer daemon. In C.
 
 ## Motivation
-F#ck GUI. We don't need your fancy buttons and modal windows.
-So here's a tiny Pomodoro daemon that stays the hell out of your way.
+I live in the terminal and don't want a GUI app just to count 25 minutes.
 
-## Installation
+It's also a reason to write something real in C. No dependencies, one file,
+libc and a unix socket.
+
+## Build
 You know the drill
 
 ```sh
-gcc -o daemon daemon.c
-gcc -o pomod pomod.c
+make
 ```
 
-Or throw it all in a Makefile like a proper hacker. Up to you.
-
-## Usage
-
-Compile daemon.c and pomod.c, then do magic
+No make? Fine
 
 ```sh
-./daemon
-```
-
-```
-./pomod start
-./pomod status # time left
-./pomod stop
+cc -o pomod pomod.c
 ```
 
 ## Usage
-Start the daemon
+Start the daemon somewhere: spare terminal tab, tmux pane, `&`, whatever
 
 ```sh
-./daemon
+./pomod daemon
 ```
 
-CLI usage
+Then
 
 ```sh
-./pomod start      # start a 25-minute pomodoro
-./pomod status     # check how much time is left
-./pomod stop       # stop the current session
+./pomod start      # 25-minute pomodoro
+./pomod start 50   # or 50, if you're in the zone
+./pomod status     # time left
+./pomod stop       # give up
+```
+
+When time is up the daemon beeps. Want a real notification? Give it a command,
+it goes to `sh` every time a pomodoro ends
+
+```sh
+# macOS
+./pomod daemon 'osascript -e "display notification \"take a break\" with title \"pomod\""'
+
+# linux
+./pomod daemon 'notify-send pomod "take a break"'
+```
+
+## How it works
+The daemon sits on a unix socket in `$XDG_RUNTIME_DIR` (or `$TMPDIR`, or `/tmp`).
+One line of text in, one line out. So you don't even need the client
+
+```sh
+echo status | nc -U $TMPDIR/pomod.sock
 ```
